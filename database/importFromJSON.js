@@ -1,8 +1,50 @@
 const fs = require("fs");
+const path = require("path");
 const pool = require("./dbConfig");
 
-async function importFromJSON(jsonFilePath) {
+function parseHost(urlStr) {
+  try {
+    return new URL(urlStr).hostname;
+  } catch (_) {
+    return null;
+  }
+}
+
+function loadCategoriesMap(csvPath) {
+  if (!csvPath) return new Map();
+  const content = fs.readFileSync(csvPath, "utf8");
+  const lines = content.split(/\r?\n/).filter(Boolean);
+  const map = new Map();
+  // Expect header: domain,categories
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    // Split on first comma only, because categories can contain commas if ever extended
+    const idx = line.indexOf(",");
+    if (idx === -1) continue;
+    const domain = line.slice(0, idx).trim();
+    const catsRaw = line.slice(idx + 1).trim();
+    if (!domain) continue;
+    const categories = catsRaw
+      ? catsRaw
+          .split("|")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    map.set(domain.toLowerCase(), categories);
+  }
+  return map;
+}
+
+async function importFromJSON(jsonFilePath, csvMappingPath) {
   const data = JSON.parse(fs.readFileSync(jsonFilePath, "utf8"));
+
+  // Determine domain and categories
+  const hostFromUrl = parseHost(data.initialUrl) || parseHost(data.finalUrl);
+  const hostFromFilename = path.basename(jsonFilePath).split("_")[0];
+  const domain = (hostFromUrl || hostFromFilename || "").toLowerCase() || null;
+  const categoriesMap = loadCategoriesMap(csvMappingPath);
+  const categories =
+    domain && categoriesMap.has(domain) ? categoriesMap.get(domain) : null;
 
   const client = await pool.connect();
   try {
@@ -10,13 +52,15 @@ async function importFromJSON(jsonFilePath) {
 
     // Insert session
     const sessionResult = await client.query(
-      "INSERT INTO crawl_sessions (initial_url, final_url, timeout, test_started, test_finished) VALUES ($1, $2, $3, to_timestamp($4/1000), to_timestamp($5/1000)) RETURNING session_id",
+      "INSERT INTO crawl_sessions (initial_url, final_url, timeout, test_started, test_finished, domain, categories) VALUES ($1, $2, $3, to_timestamp($4/1000), to_timestamp($5/1000), $6, $7) RETURNING session_id",
       [
         data.initialUrl,
         data.finalUrl,
         data.timeout,
         data.testStarted,
         data.testFinished,
+        domain,
+        categories,
       ]
     );
     const sessionId = sessionResult.rows[0].session_id;
@@ -315,11 +359,14 @@ async function importFromJSON(jsonFilePath) {
 
 if (require.main === module) {
   const jsonFile = process.argv[2];
+  const csvMap = process.argv[3];
   if (!jsonFile) {
-    console.error("Usage: node importFromJSON.js <jsonFilePath>");
+    console.error(
+      "Usage: node importFromJSON.js <jsonFilePath> [csvMappingPath]"
+    );
     process.exit(1);
   }
-  importFromJSON(jsonFile);
+  importFromJSON(jsonFile, csvMap);
 }
 
 module.exports = importFromJSON;

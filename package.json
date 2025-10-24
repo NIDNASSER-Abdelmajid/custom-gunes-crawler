@@ -7,6 +7,9 @@
   "main": "main.js",
   "scripts": {
     "crawl": "node ./cli/crawl-cli",
+    "db:init": "node ./database/initDB.js",
+    "db:import": "node ./database/importFromJSON.js",
+    "db:ingest": "node ./database/ingest.js",
     "test": "npm run lint && tsc && npm run unit",
     "unit": "node ./tests/runTests.js && npm run mocha",
     "mocha": "mocha ./tests/**/*.mocha.js",

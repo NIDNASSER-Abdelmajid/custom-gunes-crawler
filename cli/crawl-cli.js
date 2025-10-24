@@ -66,6 +66,10 @@ program
     "--chromium-version <version_number>",
     "use custom version of chromium"
   )
+  .option(
+    "-b, --batch-size <number>",
+    "process URLs in batches (default: 5); each batch runs concurrently and the next batch starts after the previous finishes"
+  )
   .parse(process.argv);
 
 /**
@@ -86,6 +90,7 @@ program
  * @param {number} maxLoadTimeMs
  * @param {number} extraExecutionTimeMs
  * @param {Object.<string, boolean>} collectorFlags
+ * @param {number} batchSize
  */
 async function run(
   inputUrls,
@@ -104,7 +109,8 @@ async function run(
   chromiumVersion,
   maxLoadTimeMs,
   extraExecutionTimeMs,
-  collectorFlags
+  collectorFlags,
+  batchSize
 ) {
   const startTime = new Date();
 
@@ -123,7 +129,7 @@ async function run(
 
   /**
    * @type {function(...any):string}
-   * @param {URL} url
+   * @param {import('url').URL} url
    * @param {string} fileType file extension, defaults to 'json'
    */
   const createOutputPath = (url, fileType = "json") =>
@@ -177,7 +183,7 @@ async function run(
   // eslint-disable-next-line arrow-parens
   const updateProgress = (
     /** @type {string} */ site = "",
-    /** @type {import('../crawler').CollectResult} */ data
+    /** @type {import('../crawler').CollectResult=} */ data = undefined
   ) => {
     reporters.forEach((reporter) => {
       reporter.update({
@@ -188,14 +194,14 @@ async function run(
         data,
         crawlTimes,
         fatalError,
-        numberOfCrawlers,
+        numberOfCrawlers: effectiveCrawlers,
         regionCode,
       });
     });
   };
 
   /**
-   * @param {URL} url
+   * @param {import('url').URL} url
    * @param {import('../crawler').CollectResult} data
    */
   const dataCallback = (url, data) => {
@@ -233,27 +239,52 @@ async function run(
     updateProgress(url);
   };
 
+  // batching configuration
+  const batchSizeNormalized = Math.max(1, Number(batchSize) || 5);
+  const effectiveCrawlers = Math.max(
+    1,
+    Math.min(
+      Number(numberOfCrawlers) || batchSizeNormalized,
+      batchSizeNormalized
+    )
+  );
+
   try {
-    await runCrawlers({
-      urls,
-      logFunction: log,
-      dataCollectors,
-      numberOfCrawlers,
-      failureCallback,
-      dataCallback,
-      filterOutFirstParty,
-      emulateMobile,
-      proxyHost,
-      antiBotDetection,
-      chromiumVersion,
-      maxLoadTimeMs,
-      extraExecutionTimeMs,
-      collectorFlags,
-      outputPath,
-    });
-    log(chalk.green("\n✅ Finished successfully."));
+    for (let i = 0; i < urls.length; i += batchSizeNormalized) {
+      const batch = urls.slice(i, i + batchSizeNormalized);
+      log(
+        chalk.cyan(
+          `\n▶️  Starting batch ${Math.floor(i / batchSizeNormalized) + 1} (${
+            batch.length
+          } sites)...`
+        )
+      );
+      await runCrawlers({
+        urls: batch,
+        logFunction: log,
+        dataCollectors,
+        numberOfCrawlers: effectiveCrawlers,
+        failureCallback,
+        dataCallback,
+        filterOutFirstParty,
+        emulateMobile,
+        proxyHost,
+        antiBotDetection,
+        chromiumVersion,
+        maxLoadTimeMs,
+        extraExecutionTimeMs,
+        collectorFlags,
+        outputPath,
+      });
+      log(
+        chalk.green(
+          `✅ Finished batch ${Math.floor(i / batchSizeNormalized) + 1}.`
+        )
+      );
+    }
+    log(chalk.green("\n✅ All batches finished successfully."));
   } catch (e) {
-    log(chalk.red("\n🚨 Fatal error."), e);
+    log(chalk.red("\n🚨 Fatal error during batch."), e);
     fatalError = e;
   }
 
@@ -269,7 +300,7 @@ async function run(
     startTime,
     endTime,
     fatalError,
-    numberOfCrawlers,
+    numberOfCrawlers: effectiveCrawlers,
     filterOutFirstParty,
     emulateMobile,
     proxyHost,
@@ -359,6 +390,7 @@ if (!config.urls || !config.output) {
     config.chromiumVersion,
     config.maxLoadTimeMs,
     config.extraExecutionTimeMs,
-    collectorFlags
+    collectorFlags,
+    config.batchSize
   );
 }

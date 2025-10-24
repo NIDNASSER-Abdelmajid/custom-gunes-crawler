@@ -5,7 +5,10 @@ CREATE TABLE IF NOT EXISTS crawl_sessions (
     final_url TEXT NOT NULL,
     timeout BOOLEAN DEFAULT FALSE,
     test_started TIMESTAMP NOT NULL,
-    test_finished TIMESTAMP NOT NULL
+    test_finished TIMESTAMP NOT NULL,
+    -- optional metadata from input list
+    domain TEXT,
+    categories TEXT[]
 );
 
 -- Fingerprint data
