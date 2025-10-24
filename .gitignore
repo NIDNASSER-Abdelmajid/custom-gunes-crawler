@@ -4,4 +4,4 @@ node_modules
 data/
 summary.json
 .env
-env/
+*/env/
