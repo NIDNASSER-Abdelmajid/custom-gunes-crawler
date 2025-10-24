@@ -66,12 +66,6 @@ program
     "--chromium-version <version_number>",
     "use custom version of chromium"
   )
-  .option(
-    "--depth <number>",
-    "crawl depth (0 for main page only, default 0)",
-    parseInt,
-    0
-  )
   .parse(process.argv);
 
 /**
@@ -110,8 +104,7 @@ async function run(
   chromiumVersion,
   maxLoadTimeMs,
   extraExecutionTimeMs,
-  collectorFlags,
-  depth = 0
+  collectorFlags
 ) {
   const startTime = new Date();
 
@@ -133,17 +126,8 @@ async function run(
    * @param {URL} url
    * @param {string} fileType file extension, defaults to 'json'
    */
-  const createOutputPath = (url, fileType = "json", depth = 0) => {
-    const mainUrl = new URL(
-      typeof inputUrls[0] === "string" ? inputUrls[0] : inputUrls[0].url
-    );
-    const mainName = createUniqueUrlName(mainUrl).replace(/\./g, "_");
-    const urlName = createUniqueUrlName(url).replace(/\./g, "_");
-    const depthFolder = `${urlName}_${depth}`;
-    const dataFolder = path.join(outputPath, mainName, depthFolder, "data");
-    fs.mkdirSync(dataFolder, { recursive: true });
-    return path.join(dataFolder, `results.${fileType}`);
-  };
+  const createOutputPath = (url, fileType = "json") =>
+    path.join(outputPath, `${createUniqueUrlName(url)}.${fileType}`);
 
   const urls = inputUrls.filter((item) => {
     const urlString = typeof item === "string" ? item : item.url;
@@ -173,7 +157,6 @@ async function run(
       }
     }
 
-    crawled.add(urlString);
     return true;
   });
 
@@ -190,9 +173,6 @@ async function run(
    * @type {Array<Array<number>>}
    */
   let crawlTimes = [];
-
-  let collectedLinks = [];
-  const crawled = new Set();
 
   // eslint-disable-next-line arrow-parens
   const updateProgress = (
@@ -227,11 +207,11 @@ async function run(
       data.testFinished - data.testStarted,
     ]);
 
-    const outputFile = createOutputPath(url, "json", 0);
+    const outputFile = createOutputPath(url);
 
     // move screenshot to its own file and only keep screenshot path in the JSON data
     if (data.data.screenshots) {
-      const screenshotFilename = createOutputPath(url, "jpg", 0);
+      const screenshotFilename = createOutputPath(url, "jpg");
       fs.writeFileSync(
         screenshotFilename,
         Buffer.from(data.data.screenshots, "base64")
@@ -243,10 +223,6 @@ async function run(
     updateProgress(url.toString(), data);
 
     fs.writeFileSync(outputFile, JSON.stringify(data, null, 2));
-
-    if (data.data.links) {
-      collectedLinks.push(...data.data.links.map((l) => l.href));
-    }
   };
 
   /**
@@ -279,56 +255,6 @@ async function run(
   } catch (e) {
     log(chalk.red("\n🚨 Fatal error."), e);
     fatalError = e;
-  }
-
-  if (depth > 0) {
-    const linkUrls = [...new Set(collectedLinks)].filter(
-      (u) => !crawled.has(u)
-    );
-    linkUrls.forEach((u) => crawled.add(u));
-    if (linkUrls.length > 0) {
-      try {
-        await runCrawlers({
-          urls: linkUrls,
-          logFunction: log,
-          dataCollectors,
-          numberOfCrawlers,
-          failureCallback,
-          dataCallback: (url, data) => {
-            successes++;
-            crawlTimes.push([
-              data.testStarted,
-              data.testFinished,
-              data.testFinished - data.testStarted,
-            ]);
-            const outputFile = createOutputPath(url, "json", 1);
-            if (data.data.screenshots) {
-              const screenshotFilename = createOutputPath(url, "jpg", 1);
-              fs.writeFileSync(
-                screenshotFilename,
-                Buffer.from(data.data.screenshots, "base64")
-              );
-              data.data.screenshots = screenshotFilename;
-            }
-            fs.writeFileSync(outputFile, JSON.stringify(data, null, 2));
-            updateProgress(url.toString(), data);
-          },
-          filterOutFirstParty,
-          emulateMobile,
-          proxyHost,
-          antiBotDetection,
-          chromiumVersion,
-          maxLoadTimeMs,
-          extraExecutionTimeMs,
-          collectorFlags,
-          outputPath,
-        });
-        log(chalk.green("\nFinished depth 1 successfully."));
-      } catch (error) {
-        log(chalk.red("\nFatal error in depth 1."), error);
-        fatalError = error;
-      }
-    }
   }
 
   const endTime = new Date();
@@ -433,7 +359,6 @@ if (!config.urls || !config.output) {
     config.chromiumVersion,
     config.maxLoadTimeMs,
     config.extraExecutionTimeMs,
-    collectorFlags,
-    program.depth
+    collectorFlags
   );
 }
