@@ -39,52 +39,35 @@ def is_live(site: str, timeout=5):
         return 0
 
 if __name__ == "__main__":
-    # Initialize browser with proper options
-
-
     options = Options()
     options.add_argument("--disable-blink-features=AutomationControlled")
     driver = webdriver.Chrome(options=options)
     driver.maximize_window()
 
-    # to run it first time!
-
     shutil.rmtree("websites/.tranco", ignore_errors=True)
 
     t = Tranco(cache=True, cache_path="websites/tranco_cache")
     tranco_name = t.list(full=True).list_id
-    # input("Press enter to continue...")
-    # tranco_name = "7NX9X"
-    # print(tranco_name)
-    # tranco_name = "GV6ZK"
+
     done_websites = []
     try:
-        # Initialize Tranco list
-        # DESIRED_PER_CAT = 100
-        # all_categories = ["General News"]
-        # print(f"Found {tranco_domains} tranco domains")
-        # tranco_domains = list(t.list(full=True).list)
         with open(f".tranco/{tranco_name}.csv", "r+", encoding="utf-8") as f:
             tranco_domains = f.readlines()
             print(f"[-] Found {len(tranco_domains)} domains")
 
-        # print(tranco_domains[:3])
-        # concat_domains = open("Tranco-categorizer.csv", "r", encoding="utf-8").read()
-        with open(f"Tranco-categorizer.csv", "r", encoding="utf-8") as f:
+        if not os.path.exists(f"./Tranco-categorizer.csv"):
+            with open(f"./Tranco-categorizer.csv", "w", encoding="utf-8") as f:
+                f.write("domain,categories\n")
+                print("[+] Created Tranco-categorizer.csv file")
+
+        with open(f"./Tranco-categorizer.csv", "r+", encoding="utf-8") as f:
             concat_domains = [x.split("\n")[0].split(',')[0] for x in f.readlines()][1:]
             print(f"[-] {len(concat_domains)} domains already categorized")
-            # print(f"Concat domains: {concat_domains[:10]}")
-            # input("Press enter to continue...")
 
         with open("Tranco-categorizer.csv", "a+", encoding="utf-8") as f:
             print("[+] categorizing websites...")
             record = ""
-            # counter = f.readlines()[-1].split(',')[0] if f.readlines() != [] else 0
-            # print("counter: ", counter)
-            # print("line: ", f.readlines())
-            # try:
-            #     counter = int(counter)
-            # except:
+
             counter = 0
             print(f"[+] {len(concat_domains)} domains categorized")
             for domain in tranco_domains:
@@ -93,10 +76,8 @@ if __name__ == "__main__":
                 if domain in concat_domains:
                     print(f"[-] Skipping {domain}")
                     continue
-            # for domain in tranco_domains:
-            #     f.write(domain + "\n")
+
                 counter += 1
-                # status = is_live(domain)
                 domain = domain.strip()
                 cats = get_domain_category(driver, domain) or []
                 cleaned_cats = "|".join(cats).replace("||", "|")
@@ -110,6 +91,8 @@ if __name__ == "__main__":
                         break
     except Exception as e:
         print(f"[!] Exception: {e}")
+    except KeyboardInterrupt:
+        print("\n[!] Interrupted by user.")
     finally:
         with open(f".tranco/{tranco_name}.csv", "w", encoding="utf-8") as f:
             l = [i for i in tranco_domains if i not in done_websites[:-1]]
